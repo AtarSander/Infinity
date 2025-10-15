@@ -161,6 +161,7 @@ class Infinity(nn.Module):
         apply_spatial_patchify=0,
         inference_mode=False,
         steering_location="ffn",
+        capture_activations=False,
     ):
         # set hyperparameters
         self.steering_location = steering_location
@@ -255,6 +256,7 @@ class Infinity(nn.Module):
         self.maybe_record_function = nullcontext
         self.text_maxlen = text_maxlen
         self.t2i = text_channels != 0
+        self.capture_activations = capture_activations
 
         # [inp & position embedding]
         init_std = math.sqrt(1 / self.C / 3)
@@ -545,6 +547,25 @@ class Infinity(nn.Module):
         x_BLC = torch.cat(x_BLC_list, dim=1)
         return x_BLC
 
+    def configure_activation_capture(self):
+        def register_hooks(model, steer_location):
+            activations = {}
+
+            def hook_fn(module, input, output):
+                activations[module] = output.clone().detach()
+
+            for block_idx, b in enumerate(model.block_chunks):
+                for m in b.module:
+                    if steer_location == "ffn":
+                        m.ffn.register_forward_hook(hook_fn)
+                    elif steer_location == "ca":
+                        m.ca.register_forward_hook(hook_fn)
+                    elif steer_location == "ca_block":
+                        m.register_forward_hook(hook_fn)
+            return activations
+
+        self.current_activations = register_hooks(self, self.steering_location)
+
     def forward(
         self,
         label_B_or_BLT: Union[
@@ -735,6 +756,7 @@ class Infinity(nn.Module):
         sampling_per_bits=1,
         capture_activations=False,
     ):  # returns List[idx_Bl]
+        self.capture_activations = capture_activations
         if g_seed is None:
             rng = None
         else:
@@ -824,26 +846,8 @@ class Infinity(nn.Module):
         num_stages_minus_1 = len(scale_schedule) - 1
         summed_codes = 0
 
-        def register_hooks(model, steer_location):
-            activations = {}
-
-            def hook_fn(module, input, output):
-                activations[module] = output.clone().detach()
-
-            for block_idx, b in enumerate(model.block_chunks):
-                for m in b.module:
-                    if steer_location == "ffn":
-                        m.ffn.register_forward_hook(hook_fn)
-                    elif steer_location == "ca":
-                        m.ca.register_forward_hook(hook_fn)
-                    elif steer_location == "ca_block":
-                        m.register_forward_hook(hook_fn)
-
-            return activations
-
         activations = {}
-        if capture_activations:
-            current_activations = register_hooks(self, self.steering_location)
+
         for si, pn in enumerate(scale_schedule):  # si: i-th segment
             if hasattr(self, "_steering_scale_callback"):
                 self._steering_scale_callback(si)
@@ -997,12 +1001,12 @@ class Infinity(nn.Module):
             if si != num_stages_minus_1:
                 last_stage = self.word_embed(self.norm0_ve(last_stage))
                 last_stage = last_stage.repeat(bs // B, 1, 1)
-            if capture_activations:
+            if self.capture_activations:
                 activations[si] = {
                     "ffn_" + str(mod): act.detach().clone()
-                    for mod, act in enumerate(current_activations.values())
+                    for mod, act in enumerate(self.current_activations.values())
                 }
-                current_activations.clear()
+                self.current_activations.clear()
         if inference_mode:
             for b in self.unregistered_blocks:
                 (b.sa if isinstance(b, CrossAttnBlock) else b.attn).kv_caching(False)
