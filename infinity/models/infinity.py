@@ -161,6 +161,7 @@ class Infinity(nn.Module):
         apply_spatial_patchify=0,
         inference_mode=False,
         steering_location="ffn",
+        capture_activations=True,
     ):
         # set hyperparameters
         self.steering_location = steering_location
@@ -255,6 +256,7 @@ class Infinity(nn.Module):
         self.maybe_record_function = nullcontext
         self.text_maxlen = text_maxlen
         self.t2i = text_channels != 0
+        self.capture_activations = capture_activations
 
         # [inp & position embedding]
         init_std = math.sqrt(1 / self.C / 3)
@@ -545,6 +547,10 @@ class Infinity(nn.Module):
         x_BLC = torch.cat(x_BLC_list, dim=1)
         return x_BLC
 
+    def wrap_blocks(self):
+        self.collector = ActivationCollector()
+        wrap_layers(self, self.steering_location, self.collector)
+
     def forward(
         self,
         label_B_or_BLT: Union[
@@ -825,9 +831,6 @@ class Infinity(nn.Module):
         summed_codes = 0
 
         activations = {}
-        if capture_activations:
-            collector = ActivationCollector()
-            wrap_layers(self, self.steering_location, collector)
         for si, pn in enumerate(scale_schedule):  # si: i-th segment
             if hasattr(self, "_steering_scale_callback"):
                 self._steering_scale_callback(si)
@@ -980,13 +983,12 @@ class Infinity(nn.Module):
             if si != num_stages_minus_1:
                 last_stage = self.word_embed(self.norm0_ve(last_stage))
                 last_stage = last_stage.repeat(bs // B, 1, 1)
-            if capture_activations:
-                current_activations = collector.activations
+            if self.capture_activations:
                 activations[si] = {
-                    self.steering_location + str(mod): act.detach().clone()
-                    for mod, act in enumerate(current_activations)
+                    self.steering_location + str(mod): act
+                    for mod, act in enumerate(self.collector.activations)
                 }
-                collector.clear()
+                self.collector.clear()
 
         if inference_mode:
             for b in self.unregistered_blocks:
