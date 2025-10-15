@@ -32,7 +32,7 @@ from infinity.models.basic import (
 from infinity.utils import misc
 from infinity.models.flex_attn import FlexAttn
 from infinity.utils.dynamic_resolution import dynamic_resolution_h_w, h_div_w_templates
-from experiment_7.utils.steering_wrapper import wrap_layers, ActivationCollector
+from experiment_8.steering_wrapper import wrap_layers, ActivationCollector
 
 try:
     from infinity.models.fused_op import fused_ada_layer_norm, fused_ada_rms_norm
@@ -984,7 +984,7 @@ class Infinity(nn.Module):
                 current_activations = collector.activations
                 activations[si] = {
                     self.steering_location + str(mod): act.detach().clone()
-                    for mod, act in enumerate(current_activations.values())
+                    for mod, act in enumerate(current_activations)
                 }
                 collector.clear()
 
