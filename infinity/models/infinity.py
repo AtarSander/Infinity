@@ -32,7 +32,11 @@ from infinity.models.basic import (
 from infinity.utils import misc
 from infinity.models.flex_attn import FlexAttn
 from infinity.utils.dynamic_resolution import dynamic_resolution_h_w, h_div_w_templates
-from experiment_8.steering_wrapper import wrap_layers, ActivationCollector
+from experiment_8.steering_wrapper import (
+    wrap_layers,
+    unwrap_layers,
+    ActivationCollector,
+)
 
 try:
     from infinity.models.fused_op import fused_ada_layer_norm, fused_ada_rms_norm
@@ -547,9 +551,14 @@ class Infinity(nn.Module):
         x_BLC = torch.cat(x_BLC_list, dim=1)
         return x_BLC
 
-    def wrap_blocks(self):
+    def configure_activation_capture(self):
         self.collector = ActivationCollector()
         wrap_layers(self, self.steering_location, self.collector)
+
+    def reset_activation_capture(self):
+        self.collector = None
+        self.capture_activations = False
+        unwrap_layers(self)
 
     def forward(
         self,
@@ -741,6 +750,7 @@ class Infinity(nn.Module):
         sampling_per_bits=1,
         capture_activations=False,
     ):  # returns List[idx_Bl]
+        self.capture_activations = capture_activations
         if g_seed is None:
             rng = None
         else:
