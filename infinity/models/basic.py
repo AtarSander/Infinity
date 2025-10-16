@@ -11,7 +11,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-from timm.models.layers import DropPath, drop_path
+from timm.layers import DropPath, drop_path
 from torch.utils.checkpoint import checkpoint
 
 # Import flash_attn's attention
