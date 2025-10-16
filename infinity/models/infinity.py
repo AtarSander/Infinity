@@ -32,7 +32,7 @@ from infinity.models.basic import (
 from infinity.utils import misc
 from infinity.models.flex_attn import FlexAttn
 from infinity.utils.dynamic_resolution import dynamic_resolution_h_w, h_div_w_templates
-from experiment_8.steering_wrapper import (
+from experiment_8.steering_manager_wrappers import (
     wrap_layers,
     unwrap_layers,
     ActivationCollector,
@@ -844,6 +844,7 @@ class Infinity(nn.Module):
         for si, pn in enumerate(scale_schedule):  # si: i-th segment
             if hasattr(self, "_steering_scale_callback"):
                 self._steering_scale_callback(si)
+                self._current_scale = si
             cfg = cfg_list[si]
             if si >= trunk_scale:
                 break
