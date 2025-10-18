@@ -749,6 +749,7 @@ class Infinity(nn.Module):
         save_img_path=None,
         sampling_per_bits=1,
         capture_activations=False,
+        break_at_scale=-2,
     ):  # returns List[idx_Bl]
         self.capture_activations = capture_activations
         if g_seed is None:
@@ -842,9 +843,12 @@ class Infinity(nn.Module):
 
         activations = {}
         for si, pn in enumerate(scale_schedule):  # si: i-th segment
+            self._current_scale = si
+            if si == break_at_scale + 1:
+                return None, None, None, activations
             if hasattr(self, "_steering_scale_callback"):
                 self._steering_scale_callback(si)
-                self._current_scale = si
+
             cfg = cfg_list[si]
             if si >= trunk_scale:
                 break
