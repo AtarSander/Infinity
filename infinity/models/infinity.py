@@ -749,7 +749,8 @@ class Infinity(nn.Module):
         save_img_path=None,
         sampling_per_bits=1,
         capture_activations=False,
-        break_at_scale=-2,
+        break_at_scale=0,
+        break_at_scale_layer=(-2, -2),
     ):  # returns List[idx_Bl]
         self.capture_activations = capture_activations
         if g_seed is None:
@@ -842,10 +843,9 @@ class Infinity(nn.Module):
         summed_codes = 0
 
         activations = {}
+        break_scale, break_layer = break_at_scale_layer
         for si, pn in enumerate(scale_schedule):  # si: i-th segment
             self._current_scale = si
-            if si == break_at_scale + 1:
-                return None, None, None, activations
             if hasattr(self, "_steering_scale_callback"):
                 self._steering_scale_callback(si)
 
@@ -892,6 +892,14 @@ class Infinity(nn.Module):
                         # print(f'add cfg={cfg} on {layer_idx}-th layer output')
                         last_stage = cfg * last_stage[:B] + (1 - cfg) * last_stage[B:]
                         last_stage = torch.cat((last_stage, last_stage), 0)
+                    if self.capture_activations:
+                        activations[si] = {
+                            self.steering_location
+                            + str(layer_idx): self.collector.activations[0]
+                        }
+                        self.collector.clear()
+                    if si == break_scale and layer_idx == break_layer:
+                        return None, None, None, activations
                     layer_idx += 1
 
             if (cfg != 1) and add_cfg_on_logits:
@@ -998,12 +1006,6 @@ class Infinity(nn.Module):
             if si != num_stages_minus_1:
                 last_stage = self.word_embed(self.norm0_ve(last_stage))
                 last_stage = last_stage.repeat(bs // B, 1, 1)
-            if self.capture_activations:
-                activations[si] = {
-                    self.steering_location + str(mod): act
-                    for mod, act in enumerate(self.collector.activations)
-                }
-                self.collector.clear()
 
         if inference_mode:
             for b in self.unregistered_blocks:
