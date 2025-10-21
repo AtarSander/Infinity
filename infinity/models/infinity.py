@@ -749,7 +749,6 @@ class Infinity(nn.Module):
         save_img_path=None,
         sampling_per_bits=1,
         capture_activations=False,
-        break_at_scale=0,
         break_at_scale_layer=(-2, -2),
     ):  # returns List[idx_Bl]
         self.capture_activations = capture_activations
