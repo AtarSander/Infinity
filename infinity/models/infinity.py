@@ -37,6 +37,7 @@ from experiment_8.steering_manager_wrappers import (
     unwrap_layers,
     ActivationCollector,
 )
+from utils.steering_methods import SteeringWrapper, SteeringMode
 
 try:
     from fused_op import fused_ada_layer_norm, fused_ada_rms_norm
@@ -560,6 +561,70 @@ class Infinity(nn.Module):
         self.capture_activations = False
         unwrap_layers(self)
 
+    def enable_registry_steering(
+        self,
+        registry,
+        schedule_by_scale: dict,
+        steering_location: str = "ffn",
+        steering_mode=SteeringMode.BOTH,
+    ):
+        """
+        schedule_by_scale:
+            {
+              0: {"layers":[6,7,8,9,10,11], "cond":1.5, "uncond":1.5},
+              1: {"layers":[...],            "cond":0.0, "uncond":0.0},
+              ...
+            }
+        """
+
+        def _cb(si: int):
+            self._current_scale = si
+
+        self._steering_scale_callback = _cb
+
+        self._steering_wrapped = []
+
+        def blocks_iter():
+            if hasattr(self, "blocks"):
+                for li, blk in enumerate(self.blocks):
+                    yield li, blk
+            else:
+                li = 0
+                for ch in self.block_chunks:
+                    for blk in ch.module:
+                        yield li, blk
+                        li += 1
+
+        for layer_id, block in blocks_iter():
+            if steering_location == "ffn":
+                parent, attr, original = block, "ffn", block.ffn
+            elif steering_location == "ca":
+                parent, attr, original = block, "ca", block.ca
+            else:
+                raise ValueError(steering_location)
+
+            wrapper = SteeringWrapper(
+                original_layer=original,
+                model_root=self,
+                layer_id=layer_id,
+                location=steering_location,
+                registry=registry,
+                schedule_by_scale=schedule_by_scale,
+                mode=steering_mode,
+            )
+            setattr(parent, attr, wrapper)
+            self._steering_wrapped.append((parent, attr, original))
+
+    def disable_registry_steering(self):
+        if hasattr(self, "_steering_wrapped"):
+            for parent, attr, original in self._steering_wrapped:
+                setattr(parent, attr, original)
+            self._steering_wrapped.clear()
+        if hasattr(self, "_steering_scale_callback"):
+            del self._steering_scale_callback
+        if hasattr(self, "_current_scale"):
+            del self._current_scale
+
     def forward(
         self,
         label_B_or_BLT: Union[
@@ -891,16 +956,7 @@ class Infinity(nn.Module):
                         # print(f'add cfg={cfg} on {layer_idx}-th layer output')
                         last_stage = cfg * last_stage[:B] + (1 - cfg) * last_stage[B:]
                         last_stage = torch.cat((last_stage, last_stage), 0)
-                    if self.capture_activations:
-                        activations[si] = {
-                            self.steering_location
-                            + str(layer_idx): self.collector.activations[0]
-                        }
-                        self.collector.clear()
-                    if si == break_scale and layer_idx == break_layer:
-                        return None, None, None, activations
                     layer_idx += 1
-
             if (cfg != 1) and add_cfg_on_logits:
                 # print(f'add cfg on add_cfg_on_logits')
                 logits_BlV = self.get_logits(last_stage, cond_BD).mul(1 / tau_list[si])
@@ -929,6 +985,14 @@ class Infinity(nn.Module):
                     top_p=top_p or self.top_p,
                     num_samples=1,
                 )[:, :, 0]
+            if self.capture_activations:
+                activations[si] = {
+                    self.steering_location + str(mod): act
+                    for mod, act in enumerate(self.collector.activations)
+                }
+                self.collector.clear()
+
+                self.collector.clear()
             if vae_type != 0:
                 assert returns_vemb
                 if si < gt_leak:
