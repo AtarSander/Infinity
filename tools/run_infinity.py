@@ -22,14 +22,11 @@ from PIL import Image, ImageEnhance
 import torch.nn.functional as F
 from torch.cuda.amp import autocast
 
-from ..infinity.models.infinity import Infinity
-from ..infinity.models.basic import *
+from infinity.models.infinity import Infinity
+from infinity.models.basic import *
 import PIL.Image as PImage
 from torchvision.transforms.functional import to_tensor
-from ..infinity.utils.dynamic_resolution import (
-    dynamic_resolution_h_w,
-    h_div_w_templates,
-)
+from infinity.utils.dynamic_resolution import dynamic_resolution_h_w, h_div_w_templates
 
 
 def extract_key_val(text):
@@ -342,7 +339,7 @@ def load_visual_tokenizer(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # load vae
     if args.vae_type in [14, 16, 18, 20, 24, 32, 64]:
-        from Infinity.infinity.models.bsq_vae.vae import vae_model
+        from infinity.models.bsq_vae.vae import vae_model
 
         schedule_mode = "dynamic"
         codebook_dim = args.vae_type
