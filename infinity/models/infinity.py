@@ -40,6 +40,7 @@ from utils.steering_manager_wrappers import (
     ActivationCollector,
 )
 from utils.steering_methods import SteeringWrapper, SteeringMode
+from utils.experiment_utils import print_vram
 
 try:
     from infinity.models.fused_op import fused_ada_layer_norm, fused_ada_rms_norm
@@ -580,7 +581,7 @@ class Infinity(nn.Module):
         """
 
         def _cb(si: int):
-            self._current_scale = si
+            self._current_step = si
 
         self._steering_scale_callback = _cb
 
@@ -624,8 +625,6 @@ class Infinity(nn.Module):
             self._steering_wrapped.clear()
         if hasattr(self, "_steering_scale_callback"):
             del self._steering_scale_callback
-        if hasattr(self, "_current_scale"):
-            del self._current_scale
 
     def forward(
         self,
@@ -816,7 +815,6 @@ class Infinity(nn.Module):
         save_img_path=None,
         sampling_per_bits=1,
         capture_activations=False,
-        break_at_scale_layer=(-2, -2),
     ):  # returns List[idx_Bl]
         self.capture_activations = capture_activations
         if g_seed is None:
@@ -910,7 +908,7 @@ class Infinity(nn.Module):
 
         activations = {}
         for si, pn in enumerate(scale_schedule):  # si: i-th segment
-            self._current_scale = si
+            self._current_step = si
             if hasattr(self, "_steering_scale_callback"):
                 self._steering_scale_callback(si)
 
@@ -993,7 +991,6 @@ class Infinity(nn.Module):
                 }
                 self.collector.clear()
 
-                self.collector.clear()
             if vae_type != 0:
                 assert returns_vemb
                 if si < gt_leak:
